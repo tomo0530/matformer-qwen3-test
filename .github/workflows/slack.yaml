@@ -1,0 +1,104 @@
+name: Notify Slack on Issue/PR/Discussion Creation
+
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request:
+    types: [opened, ready_for_review]
+  discussion:
+    types: [created]
+
+jobs:
+  notify:
+    if: ${{ github.event_name != 'pull_request' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Slack Webhook
+        id: check_webhook
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not set. Slack notifications will be skipped."
+            echo "slack_enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "SLACK_WEBHOOK_URL is set. Slack notifications will be sent."
+            echo "slack_enabled=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare Slack Message
+        if: steps.check_webhook.outputs.slack_enabled == 'true'
+        id: prepare_message
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ISSUE_HTML_URL: ${{ github.event.issue.html_url }}
+          GITHUB_EVENT_ISSUE_TITLE: ${{ github.event.issue.title }}
+          GITHUB_EVENT_ISSUE_USER_LOGIN: ${{ github.event.issue.user.login }}
+          GITHUB_EVENT_PULL_REQUEST_HTML_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_EVENT_PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+          GITHUB_EVENT_PULL_REQUEST_USER_LOGIN: ${{ github.event.pull_request.user.login }}
+          # ref. https://docs.github.com/ja/webhooks/webhook-events-and-payloads?actionType=created#discussion
+          GITHUB_EVENT_DISCUSSION_HTML_URL: ${{ github.event.discussion.html_url }}
+          GITHUB_EVENT_DISCUSSION_TITLE: ${{ github.event.discussion.title }}
+          GITHUB_EVENT_DISCUSSION_USER_LOGIN: ${{ github.event.discussion.user.login }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "issues" ]; then
+            URL="${GITHUB_EVENT_ISSUE_HTML_URL}"
+            TITLE="${GITHUB_EVENT_ISSUE_TITLE}"
+            EVENT_TYPE="Issue"
+            USERNAME="${GITHUB_EVENT_ISSUE_USER_LOGIN}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            URL="${GITHUB_EVENT_PULL_REQUEST_HTML_URL}"
+            TITLE="${GITHUB_EVENT_PULL_REQUEST_TITLE}"
+            EVENT_TYPE="Pull Request"
+            USERNAME="${GITHUB_EVENT_PULL_REQUEST_USER_LOGIN}"
+          elif [ "${GITHUB_EVENT_NAME}" = "discussion" ]; then
+            URL="${GITHUB_EVENT_DISCUSSION_HTML_URL}"
+            TITLE="${GITHUB_EVENT_DISCUSSION_TITLE}"
+            EVENT_TYPE="Discussion"
+            USERNAME="${GITHUB_EVENT_DISCUSSION_USER_LOGIN}"
+          else
+            echo "Unsupported event type: ${GITHUB_EVENT_NAME}"
+            exit 1
+          fi
+          REPO_NAME="${GITHUB_REPOSITORY}"
+          ACTION_USER="${GITHUB_ACTOR}"
+
+          if [ "${GITHUB_EVENT_ACTION}" = "reopened" ]; then
+          MESSAGE_TEXT="An ${EVENT_TYPE} was reopened by ${USERNAME} in ${REPO_NAME}
+          *Title:* ${TITLE}
+          *URL:* ${URL}
+          *Triggered by:* ${ACTION_USER}"
+          else
+          MESSAGE_TEXT="A new ${EVENT_TYPE} was created by ${USERNAME} in ${REPO_NAME}
+          *Title:* ${TITLE}
+          *URL:* ${URL}
+          *Triggered by:* ${ACTION_USER}"
+          fi
+
+          echo "message_text<<EOF" >> $GITHUB_OUTPUT
+          echo "$MESSAGE_TEXT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send Slack Notification
+        if: steps.check_webhook.outputs.slack_enabled == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          MESSAGE_TEXT='${{ steps.prepare_message.outputs.message_text }}'
+          MESSAGE_JSON=$(jq -n --arg text "$MESSAGE_TEXT" '{text: $text}')
+
+          response=$(curl -s -w "%{http_code}" -o /tmp/curl_response.txt \
+            -X POST -H 'Content-type: application/json' \
+            --data "$MESSAGE_JSON" "$SLACK_WEBHOOK_URL")
+
+          if [ "$response" -ne 200 ]; then
+            echo "Error sending Slack notification: HTTP status code $response"
+            cat /tmp/curl_response.txt
+            exit 1
+          fi
+
+          echo "Slack notification sent successfully."

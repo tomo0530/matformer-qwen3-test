@@ -6,19 +6,30 @@ dynamic = [ "dependencies" ]
 [tool.poetry]
 package-mode = false
 
-[tool.poetry.dependencies]
-project-module = {path = "project_module", develop = true}
-
 [tool.poetry.group.jupyter.dependencies]
 jupyterlab = "^4.3.6"
 notebook = "^7.3.3"
 
-
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.11.2"
 mypy = "^1.15.0"
-notion-extension = {path = "libs/abeja-toolkit/notion_extension", develop = true}
-notebook-exporter = {path = "libs/abeja-toolkit/notebook_exporter", develop = true}
+
+
+[tool.poetry.dependencies]
+transformers = ">=4.53"
+torch = ">=2.0"
+safetensors = "^0.5.3"
+huggingface-hub = "^0.33.4"
+tqdm = "^4.67.1"
+pandas = "^2.3.1"
+numpy = "<2.0"
+accelerate = "^1.8.1"
+sentencepiece = "^0.2.0"
+datasets = "^4.0.0"
+bitsandbytes = "^0.46.1"
+peft = "^0.16.0"
+deepspeed = "^0.17.2"
+
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
